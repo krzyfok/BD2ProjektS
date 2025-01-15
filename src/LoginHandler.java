@@ -4,8 +4,8 @@ public class LoginHandler {
     private LoginView loginView;
     private DatabaseConnector databaseConnector;
 
-    public LoginHandler(LoginView loginView) {
-        this.loginView = loginView;
+    public LoginHandler() {
+        this.loginView = new LoginView(this);
         this.databaseConnector = new DatabaseConnector();
     }
 
@@ -24,7 +24,9 @@ public class LoginHandler {
                 switch (role) {
                     case "klient":
                         UserSession.setLoggedInUserId(databaseConnector.getUserIdByUsernameAndRole(username,password));
-                         new ShopView(databaseConnector);
+                        ShopView shopView = new ShopView();  // Poprawnie inicjalizujemy ShopView
+                        ShopPresenter shopPresenter = new ShopPresenter(shopView, databaseConnector);
+                        shopView.setPresenter(shopPresenter);
                         break;
                     case "pracownik":
                         // new ServiceView(databaseConnector).display();

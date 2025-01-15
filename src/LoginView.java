@@ -8,7 +8,8 @@ public class LoginView {
     private JComboBox<String> roleComboBox;
     private LoginHandler loginHandler;
 
-    public LoginView() {
+    public LoginView(LoginHandler handler) {
+        this.loginHandler=handler;
         // Konfiguracja okna logowania
         frame = new JFrame("Logowanie");
         frame.setSize(400, 300);
@@ -35,8 +36,6 @@ public class LoginView {
 
         frame.setVisible(true);
 
-        // Inicjalizacja login handler
-        loginHandler = new LoginHandler(this);
     }
 
     // Obsługa logowania

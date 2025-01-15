@@ -7,7 +7,7 @@ public class DatabaseConnector {
 
     // Metoda łączenia z bazą danych dla konkretnej roli
     public void connect(String role) throws SQLException {
-        String url = "jdbc:mysql://localhost:3306/bd2";
+        String url = "jdbc:mysql://localhost:3306/mydb";
         String username = "root";
         String password = "";
 
@@ -68,25 +68,20 @@ public class DatabaseConnector {
     // Metoda do pobierania produktów z bazy danych
     public List<String> getProducts() throws SQLException {
         List<String> products = new ArrayList<>();
-        String sql = "SELECT nazwa FROM sprzet";  // Zapytanie SQL do pobrania produktów (przyjmujemy, że tabela nazywa się 'products')
+        String sql = "SELECT idsprzet, nazwa, cena FROM sprzet";  // Zapytanie SQL do pobrania produktów z nazwą i ceną
         try (Statement statement = connection.createStatement();
              ResultSet resultSet = statement.executeQuery(sql)) {
             while (resultSet.next()) {
-                products.add(resultSet.getString("nazwa"));
+                int id= resultSet.getInt("idsprzet");
+                String productName = resultSet.getString("nazwa");
+                double productPrice = resultSet.getDouble("cena");
+                products.add(id+" " +productName + " - " + productPrice + " PLN");  // Łączymy nazwę produktu z ceną
             }
         }
         return products;
     }
 
-    // Dodanie zgłoszenia serwisowego
-    public void addServiceRequest(int clientId, String description) throws SQLException {
-        String sql = "INSERT INTO service_requests (client_id, description) VALUES (?, ?)";
-        try (PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
-            preparedStatement.setInt(1, clientId);
-            preparedStatement.setString(2, description);
-            preparedStatement.executeUpdate();
-        }
-    }
+
 
     public List<String> getClientOrders(int clientId) throws SQLException {
         List<String> orders = new ArrayList<>();
@@ -219,6 +214,92 @@ public class DatabaseConnector {
             }
         }
     }
+
+
+    public int getProductId(String name)
+    {
+        return 0;
+    }
+
+    public void placeOrder(int clientId, List<String> cart, int installments) throws SQLException {
+
+
+        connection.setAutoCommit(false); // Wyłączamy autokompletowanie
+
+        try {
+            // Tworzymy zamówienie w tabeli 'zakup' - zapisywanie ogólnych danych o zamówieniu
+            String orderSql = "INSERT INTO zakup (pracownik_idpracownik, klient_idklient) VALUES (?, ?)";
+            try (PreparedStatement orderStatement = connection.prepareStatement(orderSql, Statement.RETURN_GENERATED_KEYS)) {
+                orderStatement.setInt(1, 1); // Przykładowy pracownik ID, można zmienić na dynamiczny
+                orderStatement.setInt(2, clientId);
+                orderStatement.executeUpdate();
+
+                // Pobieramy ID ostatniego dodanego zamówienia
+                ResultSet generatedKeys = orderStatement.getGeneratedKeys();
+                if (generatedKeys.next()) {
+                    int orderId = generatedKeys.getInt(1); // Ostatni wstawiony ID zamówienia
+
+                    // Dodajemy każdy produkt z koszyka do tabeli zakup_has_sprzet
+                    for (String product : cart) {
+                        String[] parts = product.split(" "); // Dzielimy po ciągu " - "
+                        if (parts.length < 1) {
+                            throw new SQLException("Nieprawidłowy format produktu: " + product);
+                        }
+
+                        int productId =    Integer.parseInt(parts[0]);
+
+                                // Dodajemy produkt do zamówienia
+                                String cartSql = "INSERT INTO zakup_has_sprzet (nr_seryjny, zakup_idzakup, sprzet_idsprzet) VALUES (?, ?, ?)";
+                                try (PreparedStatement cartStatement = connection.prepareStatement(cartSql)) {
+                                    cartStatement.setInt(1,11);
+                                    cartStatement.setInt(2, orderId);
+                                    cartStatement.setInt(3, productId);
+                                    cartStatement.executeUpdate();
+                                }
+
+
+                    }
+                } else {
+                    throw new SQLException("Nie udało się utworzyć zamówienia - brak ID zamówienia.");
+                }
+
+                // Zatwierdzamy transakcję
+                connection.commit();
+                System.out.println("Zamówienie zostało złożone.");
+            } catch (SQLException e) {
+                // W przypadku błędu, wycofujemy zmiany
+                connection.rollback();
+                throw e;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+            throw new SQLException("Błąd przy składaniu zamówienia: " + e.getMessage());
+        } finally {
+            // Przywracamy autokompletowanie do pierwotnego stanu
+            connection.setAutoCommit(true);
+        }
+
+
+    }
+    public int getCena(int id) throws SQLException
+    {
+
+        String sql = "SELECT cena FROM sprzet WHERE idsprzet = ?";
+
+
+        try (PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
+            preparedStatement.setInt(1, id);
+            ResultSet resultSet = preparedStatement.executeQuery();
+            if (resultSet.next()) {
+                return resultSet.getInt(1);  // Pierwsza kolumna zawiera ID użytkownika
+            } else {
+                throw new SQLException("Nie znaleziono użytkownika o podanym username.");
+            }
+        }
+    }
+
+
+
 }
 
 

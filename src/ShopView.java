@@ -1,10 +1,8 @@
 import javax.swing.*;
 import java.awt.*;
-import java.sql.*;
-import java.util.ArrayList;
 import java.util.List;
 
-public class ShopView implements LoginViewInterface {
+public class ShopView implements ShopViewInterface {
     private JFrame frame;
     private JList<String> productList;
     private DefaultListModel<String> productListModel;
@@ -13,14 +11,17 @@ public class ShopView implements LoginViewInterface {
     private JButton createServiceRequestButton;
     private JButton viewOrdersButton;
     private JButton viewServiceRequestsButton;
+    private JButton viewCartButton;
+    private JLabel totalPriceLabel;
+    private JButton orderInCartButton;  // Przycisk do składania zamówienia z koszyka
+    private JButton clearCartButton;  // Nowy przycisk do czyszczenia koszyka
 
-    // Obiekt połączenia z bazą danych
-    private DatabaseConnector databaseConnector;
-
-    public ShopView(DatabaseConnector databaseConnector) {
-        this.databaseConnector = databaseConnector;
-
-        // Konfiguracja okna widoku sklepu
+    private ShopPresenter presenter;
+    private JDialog paymentDialog;
+    private JComboBox<String> paymentMethodComboBox;
+    private JSpinner installmentSpinner;
+    private JButton confirmPaymentButton;
+    public ShopView() {
         frame = new JFrame("Sklep");
         frame.setSize(600, 400);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -30,7 +31,7 @@ public class ShopView implements LoginViewInterface {
         productListModel = new DefaultListModel<>();
         productList = new JList<>(productListModel);
         productList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        productList.addListSelectionListener(e -> showProductDetails());
+        productList.addListSelectionListener(e -> presenter.showProductDetails(productList.getSelectedValue()));
 
         // Panel do wyświetlania szczegółów produktu
         productDetailsArea = new JTextArea();
@@ -39,166 +40,110 @@ public class ShopView implements LoginViewInterface {
 
         // Przycisk dodawania produktu do koszyka
         addToCartButton = new JButton("Dodaj do koszyka");
-        addToCartButton.addActionListener(e -> addToCart());
+        addToCartButton.addActionListener(e -> presenter.addToCart(productList.getSelectedValue()));
 
         // Przyciski do zgłoszeń serwisowych i wyświetlania zamówień
         createServiceRequestButton = new JButton("Zgłoś problem");
-        createServiceRequestButton.addActionListener(e -> createServiceRequest());
+        createServiceRequestButton.addActionListener(e -> presenter.createServiceRequest());
 
         viewOrdersButton = new JButton("Zobacz zamówienia");
-        viewOrdersButton.addActionListener(e -> viewOrders());
+        viewOrdersButton.addActionListener(e -> presenter.viewOrders());
 
         viewServiceRequestsButton = new JButton("Zobacz zgłoszenia serwisowe");
-        viewServiceRequestsButton.addActionListener(e -> viewServiceRequests());
+        viewServiceRequestsButton.addActionListener(e -> presenter.viewServiceRequests());
+
+        // Przycisk do wyświetlania koszyka
+        viewCartButton = new JButton("Koszyk");
+        viewCartButton.addActionListener(e -> presenter.viewCart());
+
+        clearCartButton = new JButton("Wyczyść koszyk");
+        clearCartButton.addActionListener(e -> presenter.clearCart());
+        // Przycisk do składania zamówienia z koszyka
+        orderInCartButton = new JButton("Zamów");
+        orderInCartButton.addActionListener(e -> showPaymentDialog());
+
+
+        // Nowy przycisk do czyszczenia koszyka
+       // clearCartButton = new JButton("Wyczyść koszyk");
 
         // Układ okna
         JPanel leftPanel = new JPanel();
         leftPanel.setLayout(new BorderLayout());
         leftPanel.add(new JScrollPane(productList), BorderLayout.CENTER);
         leftPanel.add(addToCartButton, BorderLayout.SOUTH);
-
         JPanel bottomPanel = new JPanel();
-        bottomPanel.setLayout(new GridLayout(1, 3));
+        bottomPanel.setLayout(new GridLayout(1, 6));  // Zmiana, aby dodać przycisk płatności
         bottomPanel.add(createServiceRequestButton);
         bottomPanel.add(viewOrdersButton);
         bottomPanel.add(viewServiceRequestsButton);
+        bottomPanel.add(viewCartButton);  // Dodanie przycisku koszyka
+        bottomPanel.add(orderInCartButton); // Dodanie przycisku "Zamów w koszyku"
+        bottomPanel.add(clearCartButton);
 
         frame.add(leftPanel, BorderLayout.WEST);
         frame.add(detailsScrollPane, BorderLayout.CENTER);
         frame.add(bottomPanel, BorderLayout.SOUTH);
 
+        // Okno płatności
+        paymentDialog = new JDialog(frame, "Wybór Płatności", true);
+        paymentDialog.setSize(400, 300);
+        paymentDialog.setLayout(new GridLayout(4, 2));
+
+        // Pole wyboru metody płatności
+        paymentDialog.add(new JLabel("Metoda Płatności:"));
+        paymentMethodComboBox = new JComboBox<>(new String[]{"Karta kredytowa", "Przelew", "Gotówka"});
+        paymentDialog.add(paymentMethodComboBox);
+
+        // Pole wyboru liczby rat
+        paymentDialog.add(new JLabel("Liczba rat:"));
+        installmentSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 12, 1)); // Możliwość wyboru od 1 do 12 rat
+        paymentDialog.add(installmentSpinner);
+        paymentDialog.add(new JLabel("Łączna cena:"));
+        totalPriceLabel = new JLabel("0.00 PLN");  // Domyślnie łączna cena wynosi 0.00 PLN
+        paymentDialog.add(totalPriceLabel);
+        // Przycisk do potwierdzenia płatności
+        confirmPaymentButton = new JButton("Potwierdź płatność");
+        confirmPaymentButton.addActionListener(e ->  presenter.orderCart());
+        paymentDialog.add(confirmPaymentButton);
+
+        paymentDialog.setVisible(false); // Domyślnie ukryte
         frame.setVisible(true);
-
-        // Ładowanie produktów z bazy danych
-        loadProducts();
     }
 
-    // Pobranie listy produktów z bazy danych
-    private void loadProducts() {
-        try {
-            List<String> products = databaseConnector.getProducts();
-            productListModel.clear(); // Wyczyść listę przed dodaniem nowych danych
-            for (String product : products) {
-                productListModel.addElement(product);
-            }
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(frame, "Błąd podczas ładowania produktów: " + ex.getMessage());
-            ex.printStackTrace();
-        }
+    public void setPresenter(ShopPresenter presenter) {
+        this.presenter = presenter;
+    }
+    private void showPaymentDialog() {
+        // Oblicz łączną cenę koszyka i ustaw ją w etykiecie
+        double totalPrice = presenter.calculateTotalPrice();  // Nowa metoda w presenterze, która oblicza łączną cenę
+        totalPriceLabel.setText(String.format("%.2f PLN", totalPrice));
+
+        paymentDialog.setVisible(true);
     }
 
-    // Wyświetlanie szczegółów produktu
-    private void showProductDetails() {
-        String selectedProduct = productList.getSelectedValue();
-        if (selectedProduct != null) {
-            productDetailsArea.setText("Szczegóły produktu: " + selectedProduct + "\nOpis: To jest świetny produkt!");
-        }
+    private void handlePayment() {
+        // Pobieramy wybraną metodę płatności
+        String selectedPaymentMethod = (String) paymentMethodComboBox.getSelectedItem();
+        int selectedInstallments = (Integer) installmentSpinner.getValue();
+
+        // Możesz przekazać te dane do presenter'a, aby zapisać je w bazie danych
+        presenter.handlePayment(selectedPaymentMethod, selectedInstallments);
+
+        // Zamykanie okna płatności
+        paymentDialog.setVisible(false);
+        JOptionPane.showMessageDialog(frame, "Płatność została zrealizowana.");
     }
-
-    // Dodanie produktu do koszyka (symulacja)
-    private void addToCart() {
-        String selectedProduct = productList.getSelectedValue();
-        if (selectedProduct != null) {
-            JOptionPane.showMessageDialog(frame, selectedProduct + " został dodany do koszyka.");
-        } else {
-            JOptionPane.showMessageDialog(frame, "Wybierz produkt, aby dodać do koszyka.");
-        }
-    }
-
-    // Tworzenie zgłoszenia serwisowego
-    private void createServiceRequest() {
-        try {
-            int clientId = UserSession.getLoggedInUserId();  // Zakładając, że ID klienta jest 1 (to trzeba zmienić w prawdziwej aplikacji)
-
-            // Pobieranie listy sprzętów zakupionych przez klienta
-            List<String> clientProducts = databaseConnector.getClientProducts(clientId);
-
-            if (clientProducts.isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "Nie masz żadnego sprzętu zakupionego.");
-                return;
-            }
-
-            // Wyświetlenie listy sprzętu z dodatkowymi danymi (np. numer seryjny, ID zakupu)
-            // Aby użytkownik mógł wybrać sprzęt, który ma być przypisany do zgłoszenia serwisowego
-            String selectedProduct = (String) JOptionPane.showInputDialog(
-                    frame,
-                    "Wybierz sprzęt do zgłoszenia serwisowego:",
-                    "Wybór sprzętu",
-                    JOptionPane.QUESTION_MESSAGE,
-                    null,
-                    clientProducts.toArray(),
-                    clientProducts.get(0)  // Domyślny wybór (pierwszy sprzęt w liście)
-            );
-
-            if (selectedProduct == null || selectedProduct.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "Nie wybrano sprzętu.");
-                return;
-            }
-
-            // Rozdzielenie danych produktu, aby uzyskać nr seryjny i ID zakupu
-            String[] productDetails = selectedProduct.split(", ");
-            int serialNumber = Integer.parseInt(productDetails[1].split(": ")[1]);
-            int purchaseId = Integer.parseInt(productDetails[2].split(": ")[1]);
-            int equipmentId = Integer.parseInt(productDetails[3].split(": ")[1]);
-            int workerId = Integer.parseInt(productDetails[4].split(": ")[1]);
-
-
-
-                // Tworzenie zgłoszenia serwisowego
-                databaseConnector.addServiceRequest(workerId,clientId, serialNumber);
-                JOptionPane.showMessageDialog(frame, "Zgłoszenie zostało utworzone.");
-
-
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(frame, "Błąd podczas dodawania zgłoszenia: " + ex.getMessage());
-            ex.printStackTrace();
-        }
-    }
-
-
-    // Pobieranie numeru seryjnego sprzętu na podstawie jego nazwy (można to zmienić w zależności od implementacji)
-    private int getSerialNumberFromProduct(String productName) throws SQLException {
-        // Zakładamy, że metoda pobierająca sprzęt na podstawie nazwy jest zaimplementowana
-        return databaseConnector.getSerialNumberByProductName(productName);
-    }
-
-
-    // Wyświetlanie zamówień klienta
-    private void viewOrders() {
-        try {
-            int clientId = 1;  // Zakładając, że ID klienta jest 1
-            List<String> orders = databaseConnector.getClientOrders(clientId);
-            if (orders.isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "Brak zamówień.");
-            } else {
-                JOptionPane.showMessageDialog(frame, "Zamówienia:\n" + String.join("\n", orders));
-            }
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(frame, "Błąd podczas pobierania zamówień: " + ex.getMessage());
-            ex.printStackTrace();
-        }
-    }
-
-    // Wyświetlanie zgłoszeń serwisowych klienta
-    private void viewServiceRequests() {
-        try {
-            int clientId = 1;  // Zakładając, że ID klienta jest 1
-            List<String> requests = databaseConnector.getClientServiceRequests(clientId);
-            if (requests.isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "Brak zgłoszeń serwisowych.");
-            } else {
-                JOptionPane.showMessageDialog(frame, "Zgłoszenia serwisowe:\n" + String.join("\n", requests));
-            }
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(frame, "Błąd podczas pobierania zgłoszeń: " + ex.getMessage());
-            ex.printStackTrace();
-        }
-    }
-
-    // Implementacja metod z interfejsu LoginViewInterface
     @Override
-    public void closeWindow() {
-        frame.dispose();
+    public void updateProductList(List<String> products) {
+        productListModel.clear();
+        for (String product : products) {
+            productListModel.addElement(product);
+        }
+    }
+
+    @Override
+    public void showProductDetails(String productDetails) {
+        productDetailsArea.setText("Szczegóły produktu: " + productDetails);
     }
 
     @Override
@@ -207,7 +152,7 @@ public class ShopView implements LoginViewInterface {
     }
 
     @Override
-    public void clearPasswordField() {
-        // Nie ma pola hasła w tym widoku, więc ta metoda nie jest wykorzystywana
+    public void closeWindow() {
+        frame.dispose();
     }
 }
